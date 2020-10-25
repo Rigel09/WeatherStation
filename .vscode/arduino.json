@@ -1,0 +1,7 @@
+{
+    "board": "arduino:avr:uno",
+    "sketch": "main.ino",
+    "output": "../ArduinoOutput",
+    "programmer": "ArduinoISP",
+    "port": "COM4"
+}
