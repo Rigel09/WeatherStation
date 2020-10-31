@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include "LiquidCrystal_I2C.h"
 
 
 
@@ -16,6 +17,8 @@ unsigned long lastDisplayChangeTime;
 // Create an instance of the main data handler class
 DataHandler stationHandler_;
 
+// Initialize the screen
+LiquidCrystal_I2C lcd(0x27,20,4);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 
 void setup(){
     // Define Setup
@@ -32,10 +35,18 @@ void setup(){
 
     // Serial Initialization
     Serial.begin(9600);
+
+    // Initialze the screen
+    lcd.init();
+    lcd.init();
+    lcd.backlight();
+
+    
 }
 
 
 void loop() {
+    Serial.println(String(station::THRESHOLDS::MAXPRESSURE));
     
     if ((millis() - lastSensorCheckTime) >= settings::SENSOR_CHECK_INTERVAL){
         // Check Sensors and send data out

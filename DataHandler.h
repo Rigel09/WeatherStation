@@ -19,7 +19,7 @@ public:
     /// \brief puts all current sensor values in a structure
     /// \param struct of sensor values passed as reference
     /// \returns none
-    void getSensorValues(station::sensorData &sensorData);
+    station::DataValidity getSensorValues(station::sensorData &sensorData);
 
     /// \brief Checks all the sensors to get their current values
     void checkAllSensors();
