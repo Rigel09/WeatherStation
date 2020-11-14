@@ -2,6 +2,6 @@
     "board": "arduino:avr:uno",
     "sketch": "main.ino",
     "output": "../ArduinoOutput",
-    "programmer": "ArduinoISP",
+    "programmer": "AVR ISP",
     "port": "COM4"
 }

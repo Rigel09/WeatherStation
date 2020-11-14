@@ -1,9 +1,10 @@
 #include "Station.h"
 #include <Arduino.h>
+#include "dht_nonblocking.h"
+#define DHT_SENSOR_TYPE DHT_TYPE_11
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+// This has to be declared here, no clue why. Wont compile if moved inside class
+DHT_nonblocking dht_sensor(settings::HUMIDITY_SENSOR_PIN, DHT_SENSOR_TYPE);
 
 
 class DataHandler {
@@ -27,6 +28,11 @@ public:
     /// \brief Checks to see if the button has been pressed
     /// \returns true if button has been pressed otherwise false
     station::buttonPressType buttonPressOccurance();
+
+    /// \brief runs through all initialization procedures
+    /// \param none
+    /// \returns none
+    void initializeWeatherStation();
 
     /// \brief Initializes pins for Arduino
     /// \param none
@@ -127,9 +133,11 @@ private:
     /// \brief after a unit switch has occured, all the currently stored data needs to be converted
     void convertAllInternalData(station::unitType units);
 
+    /// \brief Reads in the voltage from anemometer and calculates wind speed in m/s
+    /// \param none
+    /// \return none
+    void calculateWindSpeed();
+
 };
 
-#ifdef __cplusplus
-}
-#endif
 

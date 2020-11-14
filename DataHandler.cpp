@@ -6,7 +6,7 @@
 ////////////////////////////////////////////////////////////////////////////////////////////
 
 DataHandler::DataHandler() : 
-    selectedUnits_(station::unitType::US),
+    selectedUnits_(station::unitType::SI),
     temperature_(0),
     pressure_(0),
     humidity_(0),
@@ -26,12 +26,16 @@ DataHandler::DataHandler() :
 ////////////////////////////////////////////////////////////////////////////////////////////
 // Define Public Functions
 ////////////////////////////////////////////////////////////////////////////////////////////
+void DataHandler::initializeWeatherStation() {
+    initializeButton();
+    initialzePins();
+
+}
 
 void DataHandler::initialzePins() {
     pinMode(settings::BUTTON_INPUT_PIN, INPUT);
     pinMode(settings::PRESSURE_INPUT_PIN, INPUT);
     pinMode(settings::TEMPERATURE_INPUT_PIN, INPUT);
-    pinMode(settings::RH_INPUT_PIN, INPUT);
     pinMode(settings::WIND_SPEED_INPUT_PIN, INPUT);
     pinMode(settings::LCD_SDA_OUTPUT_PIN, OUTPUT);
     pinMode(settings::LCD_SDC_OUTPUT_PIN, OUTPUT);
@@ -106,6 +110,26 @@ station::buttonPressType DataHandler::buttonPressOccurance(){
 }
 
 
+void DataHandler::checkAllSensors() {
+    // Cycle through and check all sensors 
+    // I.E. get temp data
+    // getTemp()
+
+    calculateWindSpeed();
+}
+
+station::DataValidity DataHandler::getSensorValues(station::sensorData &sensorData) {
+    sensorData.temperature = temperature_;
+    sensorData.pressure = pressure_;
+    sensorData.windChill = windChill_;
+    sensorData.heatIndex = heatIndex_;
+    sensorData.windSpeed = windSpeed_;
+    sensorData.humidity = humidity_;
+    sensorData.dewPoint = dewPoint_;
+    
+}
+
+
 
 
 
@@ -159,6 +183,10 @@ void DataHandler::convertTempUnits(float &temp, station::unitType units) {
     }
 }
 
+void DataHandler::convertPressureUnits(float &pressure, station::unitType units) {
+
+}
+
 void DataHandler::convertAllInternalData(station::unitType units){
     convertTempUnits(temperature_, units);
     convertTempUnits(windChill_, units);
@@ -166,4 +194,40 @@ void DataHandler::convertAllInternalData(station::unitType units){
     // These are commented out because they have not been declared yet
     // convertPressureUnits(pressure_, units);
     // convertWindSpeedUnits(windSpeed_, units);
+}
+
+void DataHandler::calculateWindSpeed() {
+    float windspeed = 0;
+    // get the voltage value from the anemometer
+    int sensorReading = analogRead(settings::WIND_SPEED_INPUT_PIN);
+    
+
+    // convert the bits read in from analog read to voltage
+    float sensorVoltage = sensorReading * station::VOLTAGE_CONVERSION;
+
+    // Check to make sure the voltage isn't out of bounds
+    if (sensorVoltage >= station::THRESHOLDS::MAX_WIND_VOLTAGE) {
+        windspeed = 999;
+
+    } else if  (sensorVoltage <= station::THRESHOLDS::MIN_WIND_VOLTAGE){
+        windspeed = 0;
+
+    } else {
+        // Max measurable wind speed is 32.4m/s , lowest is 0 m/s
+        // Using max and min voltage and windspeed assume a linear relationship y = mx + b
+        windspeed = ( 20.25*sensorVoltage - 8.1);
+
+        // Convert to correct units currently being used
+        if (getCurrentUnitTypeUsed() == station::unitType::SI){
+            // Convert from m/s to km/hr
+            windspeed = windspeed * 3600 / 1000;
+
+        } else {
+            // convert from m/s to mph
+            windspeed = windspeed * 2.23694;
+        }
+    }
+
+    // save the value in the class namespace variable
+    windSpeed_ = windspeed;
 }
