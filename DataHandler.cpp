@@ -1,23 +1,23 @@
 #include "DataHandler.h"
 
 
+
+
 ////////////////////////////////////////////////////////////////////////////////////////////
 // Run the constructor
 ////////////////////////////////////////////////////////////////////////////////////////////
 
 DataHandler::DataHandler() : 
-    selectedUnits_(station::unitType::SI),
     temperature_(0),
     pressure_(0),
     humidity_(0),
-    windChill_(0),
-    heatIndex_(0),
     dewPoint_(0),
     windSpeed_(0),
-    buttonState_(0),
-    buttonPreviouslyDown_(false),
-    initalButtonDownTime_(0),
-    longButtonPress_(false)
+    windSpeedVoltage_(0),
+    maxBadPressureData_(0),
+    maxBadRHData_(0),
+    maxBadTempData_(0),
+    maxBadWindSpeedData_(0)
 {
 }
 
@@ -26,107 +26,121 @@ DataHandler::DataHandler() :
 ////////////////////////////////////////////////////////////////////////////////////////////
 // Define Public Functions
 ////////////////////////////////////////////////////////////////////////////////////////////
-void DataHandler::initializeWeatherStation() {
-    initializeButton();
-    initialzePins();
+void DataHandler::updateDHTSensor(){
+    // temp is a dummy variable and not used
+    // temp is required to call function
+    float temp;
+    float hum;
+    if (humiditySensor.measure(&temp, &hum)){
+        if (!rhInRange(hum)){
+            maxBadRHData_++;
+        }
+    }
 
+    if (maxBadRHData_ > settings::MAX_BAD_DATA_POINTS){
+        humidity_ = 999;
+    
+    } else {
+        humidity_ = hum + settings::HUMIDITY_OFFSET;
+    }
 }
 
-void DataHandler::initialzePins() {
-    pinMode(settings::BUTTON_INPUT_PIN, INPUT);
-    pinMode(settings::PRESSURE_INPUT_PIN, INPUT);
-    pinMode(settings::TEMPERATURE_INPUT_PIN, INPUT);
+
+bool DataHandler::initializeWeatherStation() {
+    bool initialized = true;
+
+    // Set the pin as inputs or outputs
+    pinMode(settings::HUMIDITY_SENSOR_PIN, INPUT);
     pinMode(settings::WIND_SPEED_INPUT_PIN, INPUT);
-    pinMode(settings::LCD_SDA_OUTPUT_PIN, OUTPUT);
-    pinMode(settings::LCD_SDC_OUTPUT_PIN, OUTPUT);
+
+    // Make sure the BMP Sensor can be found on the I2C network
+    if (!bmp.begin()){
+        initialized = false;
+        Serial.println("BMP SENSOR COULD NOT BE FOUND!!!!!!!!");
+    } else {
+        // Initialize the pressure and temp resolution of the BMP Sensor if sensor is found
+        // Also Initialize the standby time.....set to 62.5 ms standby between readings aka 16 Hz Sampling Rate
+        bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,     /* Operating Mode. */
+                        Adafruit_BMP280::SAMPLING_X2,     /* Temp. oversampling */
+                        Adafruit_BMP280::SAMPLING_X16,    /* Pressure oversampling */
+                        Adafruit_BMP280::FILTER_X16,      /* Filtering. */
+                        Adafruit_BMP280::STANDBY_MS_63); /* Standby time. */
+    }
+
+    return initialized;
 }
 
-void DataHandler::initializeButton(){
-    buttonState_ = digitalRead(settings::BUTTON_INPUT_PIN);
-}
-
-
-void DataHandler::useUsCustomaryUnits(){
-    selectedUnits_ = station::unitType::US;
-    convertAllInternalData(selectedUnits_);
-}
-
-
-void DataHandler::useSIUnits(){
-    selectedUnits_ = station::unitType::SI;
-    convertAllInternalData(selectedUnits_);
-}
-
-
-station::unitType DataHandler::getCurrentUnitTypeUsed(){
-    return selectedUnits_;
-}
-
-
-station::buttonPressType DataHandler::buttonPressOccurance(){
-    station::buttonPressType buttonPressed = station::buttonPressType::notPressed;
-
-    int val = digitalRead(settings::BUTTON_INPUT_PIN);
-    delay(10);
-    int val2 = digitalRead(settings::BUTTON_INPUT_PIN);
-
-
-    if (val == val2){  // ensured there was a button press
-        
-        if (val != buttonState_ || buttonState_ == HIGH){  //button has changed state or is held down
-
-            if(val == LOW){  // Button has been let go of
-                // Reset the flag that signifies button is down
-                buttonPreviouslyDown_ = false;
-
-                if (longButtonPress_){ // check to see if button press needs to be skipped
-                    buttonPressed = station::buttonPressType::longPress;
-
-                } else {
-                    buttonPressed = station::buttonPressType::quickPress;
-                }
-            } else {
-                // Button is still held down let us measure the time
-                if (!buttonPreviouslyDown_){
-                    initalButtonDownTime_ = millis(); // record the time of button press
-                    buttonPreviouslyDown_ = true; // set the flags that button is down
-                    longButtonPress_ = false; // button has not been down 5 seconds
-
-                } else {
-                    // Check to see if button press was longer than set time
-                    if (millis() - initalButtonDownTime_ >= settings::MAX_BUTTON_PRESS_TIME){
-                        longButtonPress_ = true; // button has been down for 5s
-                    }
-                }
-
-            }
-
-        } 
-
-    } // End if (val == val2)
-
-    buttonState_ = val;  // record the value of the button
-    return buttonPressed;
-}
 
 
 void DataHandler::checkAllSensors() {
-    // Cycle through and check all sensors 
-    // I.E. get temp data
-    // getTemp()
+    /////////// Temp Calculations //////////////////
+    // Get the temperature
+    bmp_temp->getEvent(&temp_event);
 
-    calculateWindSpeed();
+    if (!tempInRange(temp_event.temperature)){
+        maxBadTempData_++;
+    }
+
+    // If the temperature data data is continually bad then dont use it
+    if (maxBadTempData_ > settings::MAX_BAD_DATA_POINTS){
+        temperature_ = 999;
+
+    } else {
+        temperature_ = temp_event.temperature + settings::TEMPERATURE_OFFSET;
+    }
+
+
+
+    /////////////// Pressure Calculations ////////////////
+    // Get the pressure
+    bmp_pressure->getEvent(&pressure_event);
+    if (!pressureInRange(pressure_event.pressure)){
+        maxBadPressureData_++;
+    }
+
+    // If the pressure data has to many bad data points then don't use it
+    if (maxBadPressureData_ > settings::MAX_BAD_DATA_POINTS){
+        pressure_ = 999;
+    
+    } else {
+        pressure_ = pressure_event.pressure +  settings::PRESSURE_OFFSET;
+    }
+
+    //////////////// Wind speed Calculations //////////////
+    float windspeed = calculateWindSpeed();
+
+    // If the wind speed has to many bad data points then neglect it
+    if (maxBadWindSpeedData_ > settings::MAX_BAD_DATA_POINTS){
+        windSpeed_ = 999;
+
+    } else {
+        
+        windSpeed_ = windspeed;
+    }
+
+
+    ///////////// Dew Point Calculations ///////////////////////////
+    if ((maxBadTempData_ < settings::MAX_BAD_DATA_POINTS) && (maxBadRHData_ < settings::MAX_BAD_DATA_POINTS)){
+        // Can only calculate the dew point if temperature and humidity are valid
+        calculateDewPoint(temperature_, humidity_);
+    
+    } else {
+        // Set the dew point to out of range value if it cant be calculated
+        // lets us know we have a problem
+        dewPoint_ = 999;
+    }
+
+    
 }
 
-station::DataValidity DataHandler::getSensorValues(station::sensorData &sensorData) {
+void DataHandler::getSensorValues(station::sensorData &sensorData) {
+    // Copy all internal values to the passed data structure
     sensorData.temperature = temperature_;
     sensorData.pressure = pressure_;
-    sensorData.windChill = windChill_;
-    sensorData.heatIndex = heatIndex_;
+    sensorData.windSpeedVoltage = windSpeedVoltage_;
     sensorData.windSpeed = windSpeed_;
     sensorData.humidity = humidity_;
     sensorData.dewPoint = dewPoint_;
-    
 }
 
 
@@ -136,22 +150,15 @@ station::DataValidity DataHandler::getSensorValues(station::sensorData &sensorDa
 ////////////////////////////////////////////////////////////////////////////////////////////
 // Define Private Functions
 ////////////////////////////////////////////////////////////////////////////////////////////
+
 bool DataHandler::tempInRange(float temp){
     bool tempValid(true);
 
-    if (selectedUnits_ == station::unitType::US){
-        if (temp > station::THRESHOLDS::MAXTEMPF || temp < station::THRESHOLDS::MINTEMPF)
-            tempValid = false; 
-    }
-
-    if (selectedUnits_ == station::unitType::SI){
-        if (temp > station::THRESHOLDS::MAXTEMPC || temp < station::THRESHOLDS::MINTEMPC)
-            tempValid = false; 
-    }
+    if (temp > station::THRESHOLDS::MAXTEMPC || temp < station::THRESHOLDS::MINTEMPC)
+        tempValid = false; 
 
     return tempValid;
 }
-
 
 bool DataHandler::pressureInRange(float pressure){
     bool pressureValid(true);
@@ -162,7 +169,6 @@ bool DataHandler::pressureInRange(float pressure){
     return pressureValid;
 }
 
-
 bool DataHandler::rhInRange(float RH){
     bool RHValid(true);
 
@@ -171,63 +177,44 @@ bool DataHandler::rhInRange(float RH){
     
     return RHValid;
 }
+                                                                                  
 
-void DataHandler::convertTempUnits(float &temp, station::unitType units) {
-    if (units == station::unitType::SI) {
-        // Convert to SI Units aka celcius
-        temp = (temp - 32) * 5/9;
-
-    } else { 
-        // Need to convert to fahrenheit
-        temp = (temp * 9/5) + 32;
-    }
+void DataHandler::calculateDewPoint(float &temp, float &RH) {  
+    float tempK;
+    float DewPointK;
+                                              
+    // Converts to Kelvin                                                          
+    tempK = temp + 273.15;                                                              
+    // Uses Temp in Kelvin and Reletive Humidity to find Dew Point                
+    DewPointK = tempK - ((100 - RH) / 5);                                          
+    // Converts Dew Point from Kelvin to Celcius                                   
+    dewPoint_= DewPointK - 273.15;                                                    
 }
 
-void DataHandler::convertPressureUnits(float &pressure, station::unitType units) {
 
-}
-
-void DataHandler::convertAllInternalData(station::unitType units){
-    convertTempUnits(temperature_, units);
-    convertTempUnits(windChill_, units);
-    convertTempUnits(heatIndex_, units);
-    // These are commented out because they have not been declared yet
-    // convertPressureUnits(pressure_, units);
-    // convertWindSpeedUnits(windSpeed_, units);
-}
-
-void DataHandler::calculateWindSpeed() {
-    float windspeed = 0;
-    // get the voltage value from the anemometer
-    int sensorReading = analogRead(settings::WIND_SPEED_INPUT_PIN);
+float DataHandler::calculateWindSpeed() {
+    float windspeed = -1;
+    int measurementAccumulation = 0;
     
-
+    for (int ii = 0; ii <= 19; ii++){
+        // get the voltage value from the anemometer
+        measurementAccumulation = measurementAccumulation + analogRead(settings::WIND_SPEED_INPUT_PIN);
+    }
+    
     // convert the bits read in from analog read to voltage
-    float sensorVoltage = sensorReading * station::VOLTAGE_CONVERSION;
+    float sensorVoltage = measurementAccumulation / 20 * station::VOLTAGE_CONVERSION;
 
     // Check to make sure the voltage isn't out of bounds
     if (sensorVoltage >= station::THRESHOLDS::MAX_WIND_VOLTAGE) {
         windspeed = 999;
+        maxBadWindSpeedData_++;
 
     } else if  (sensorVoltage <= station::THRESHOLDS::MIN_WIND_VOLTAGE){
         windspeed = 0;
 
     } else {
-        // Max measurable wind speed is 32.4m/s , lowest is 0 m/s
-        // Using max and min voltage and windspeed assume a linear relationship y = mx + b
-        windspeed = ( 20.25*sensorVoltage - 8.1);
-
-        // Convert to correct units currently being used
-        if (getCurrentUnitTypeUsed() == station::unitType::SI){
-            // Convert from m/s to km/hr
-            windspeed = windspeed * 3600 / 1000;
-
-        } else {
-            // convert from m/s to mph
-            windspeed = windspeed * 2.23694;
-        }
+        // Using max and min voltage and windspeed 
+        windspeed = ( 73.074 * sensorVoltage - 29.262) + settings::WIND_SPEED_OFFSET; 
     }
-
-    // save the value in the class namespace variable
-    windSpeed_ = windspeed;
+    return windspeed;
 }

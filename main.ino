@@ -1,13 +1,17 @@
+// This File Contains the code for the weather station 
+// MAE 311 Project - Weather Station
+// Written by: Joshua Newton, Ryan Free
+// Fall 2020
+// Measures Temperature (C), Barometric Pressure (hPa), Humidity (%RH), and Wind Speed (kmh)
+// Calculates Dew Point (C)
+
+
 #include <Arduino.h>
 #include "LiquidCrystal_I2C.h"
 #include <Wire.h> 
+#include "DataHandler.h"
+#include "Station.h"
 
-
-
-
-//////////////////////////////////////////////////////////////////////////////
-/////////// This contains the code for the Weather Station ///////////////////
-//////////////////////////////////////////////////////////////////////////////
 
 
 // Stores the last time the sesnors was checked for data
@@ -18,6 +22,9 @@ unsigned long lastDisplayChangeTime;
 
 // Stores the last time the screen was scrolled
 unsigned long lastScreenScroll;
+
+// Stores the last time data was sent out
+unsigned long lastDataSend;
 
 // lead row num
 int leadRow = 0;
@@ -32,15 +39,11 @@ LiquidCrystal_I2C lcd(0x27,20,5);  // set the LCD address to 0x27 for a 16 chars
 
 
 void setup(){
-    // Define Setup
-
-    // Initialize the pin modes
-    stationHandler_.initializeWeatherStation();
-    
     // Initiate the time for the last display and sensor change
     lastSensorCheckTime = millis();
     lastDisplayChangeTime = millis();
     lastScreenScroll = millis();
+    lastDataSend = millis();
 
     // Serial Initialization
     Serial.begin(9600);
@@ -48,20 +51,60 @@ void setup(){
     // Initialze the screen
     lcd.init();
     lcd.backlight();
-    initializeLCD();
+
+    // Initialize the weather station
+    if (!stationHandler_.initializeWeatherStation()){
+        lcd.setCursor(0,0);
+        lcd.print("    ERROR!!!!!!");
+        lcd.setCursor(0,1);
+        lcd.print("   BMP SENSOR WAS   ");
+        lcd.setCursor(0,2);
+        lcd.print("    NOT FOUND    ");
+        lcd.setCursor(0,3);
+        lcd.print("   CHECK WIRING");
+
+        for (;;){
+            // Do Nothing station failed to initialize
+            // Infinite Loop
+            Serial.println("NOT INITIALIZED");
+            delay(1000);
+        }
+        
+    } else {
+        initializeLCD();
+    }
 }
 
 
 void loop() {
+    // Humidity Sensor needs to be continually updated very fast
+    stationHandler_.updateDHTSensor();
     
     
     if ((millis() - lastSensorCheckTime) >= settings::SENSOR_CHECK_INTERVAL){
-        // Check Sensors and send data out
+        // Check Sensors
         stationHandler_.checkAllSensors();
         stationHandler_.getSensorValues(weatherData);
-        Serial.println(weatherData.windSpeed);
 
         lastSensorCheckTime = millis();
+    }
+
+    if (millis() - lastDataSend > settings::SEND_DATA_INTERVAL){
+        // Send data out
+        Serial.print(millis());
+        Serial.print(":");
+        Serial.print(weatherData.temperature);
+        Serial.print(":");
+        Serial.print(weatherData.pressure);
+        Serial.print(":");
+        Serial.print(weatherData.humidity);
+        Serial.print(":");
+        Serial.print(weatherData.windSpeed);
+        Serial.print(":");
+        Serial.print(weatherData.windSpeedVoltage);
+        Serial.print(":");
+        Serial.println(weatherData.dewPoint);
+        lastDataSend = millis();
     }
 
     
@@ -70,7 +113,9 @@ void loop() {
 
     if ((millis() - lastDisplayChangeTime) >= settings::DISPLAY_UPDATE_INTERVAL){
         // Update Display
+
         if ((millis() - lastScreenScroll) >= settings::SCREEN_SCROLL_CHANGE_INTERVAL){
+            // Scroll the screen because we have 5 things to display and only 4 rows
             if (leadRow > 3)   
                 leadRow = 0;
             else 
@@ -82,7 +127,7 @@ void loop() {
         if (leadRow < 4)
             displayTemp(weatherData.temperature, leadRow);
 
-
+        // Put the appriate data on the appropriate lcd row
         if (leadRow + 1 < 4)
             displayWindSpeed(weatherData.windSpeed, leadRow + 1);
         else if (leadRow + 1 > 4)
@@ -92,7 +137,6 @@ void loop() {
             displayPressure(weatherData.pressure, leadRow + 2);
         else if (leadRow + 2 > 4)
             displayPressure(weatherData.pressure, leadRow - 3);
-            
 
         if (leadRow + 3 < 4)
             displayHumidity(weatherData.humidity, leadRow + 3);
@@ -104,42 +148,9 @@ void loop() {
         else if (leadRow + 4 > 4)
             displayDewPoint(weatherData.dewPoint, leadRow - 1);
         
-
-        
         lastDisplayChangeTime = millis();
     }
 
-    
-
-    // Check for button press and do stuff
-    station::buttonPressType buttonPress = stationHandler_.buttonPressOccurance();
-    
-
-    if (buttonPress == station::buttonPressType::quickPress){
-        // Do stuff for quick press
-
-    } else if (buttonPress == station::buttonPressType::longPress) {
-        // If button is pressed for long time change the unit type in the weather station
-        station::unitType currentType = stationHandler_.getCurrentUnitTypeUsed();
-
-        if (currentType == station::unitType::SI) {
-            stationHandler_.useUsCustomaryUnits();
-        } else {
-            stationHandler_.useSIUnits();
-        }
-
-    } else {
-        // Button wasn't pressed
-        // Handle this here and maybe delete this else
-        // may not be needed
-    }
-
-
-
-
-    // Check for incoming messages over serial port
-    // This should be implemented last after everything is already working
-    // Messages to include: Connect, Disconnect, Unit Swap, Set Display update rate, Set sensor check rate
 
     // All other calculations should be done in DataHandler
 }
@@ -166,12 +177,8 @@ void displayTemp(float temperature, int row)
 
     lcd.setCursor(19,row);
     
-    if (stationHandler_.getCurrentUnitTypeUsed() ==  station::unitType::SI){
-        lcd.print("C");
+    lcd.print("C");
     
-    } else {
-        lcd.print("F");
-    }
 }
 
 
@@ -185,12 +192,7 @@ void displayWindSpeed(float windspeed, int row)
     lcd.print(windspeed,2);
     lcd.setCursor(17,row);
 
-    if (stationHandler_.getCurrentUnitTypeUsed() == station::unitType::SI){
-        lcd.print("KMH");
-
-    } else {
-        lcd.print("MPH");
-    }
+    lcd.print("KMH");
 }
 
 
@@ -204,14 +206,8 @@ void displayPressure(float pressure, int row)
     lcd.print(pressure,2);
     
 
-    if (stationHandler_.getCurrentUnitTypeUsed() == station::unitType::SI){
-        lcd.setCursor(18, row);
-        lcd.print("PA");
-
-    } else {
-        lcd.setCursor(17, row);
-        lcd.print("PSI");
-    }
+    lcd.setCursor(17, row);
+    lcd.print("hPa");
 }
 
 
@@ -241,10 +237,5 @@ void displayDewPoint(float dewPoint, int row)
 
     lcd.setCursor(19,row);
     
-    if (stationHandler_.getCurrentUnitTypeUsed() ==  station::unitType::SI){
-        lcd.print("C");
-    
-    } else {
-        lcd.print("F");
-    }
+    lcd.print("C");
 }
